@@ -40,14 +40,10 @@ __all__ = ["DataHandler",
            "get_FashionMNIST",
            "get_FEMNIST"]
 
-UCI_BASE_URL = "https://archive.ics.uci.edu/ml/machine-learning-databases/"
+UCI_BASE_URL = "file:///D:/User/Desktop/gossipy/data/"
 
 UCI_URL_AND_CLASS = {
-    "spambase" : (UCI_BASE_URL + "spambase/spambase.data", 57),
-    "sonar" : (UCI_BASE_URL + "undocumented/connectionist-bench/sonar/sonar.all-data", 60),
-    "ionosphere" : (UCI_BASE_URL + "ionosphere/ionosphere.data", 34),
-    "abalone" : (UCI_BASE_URL + "abalone/abalone.data", 0),
-    "banknote" : (UCI_BASE_URL + "00267/data_banknote_authentication.txt", 4),
+    "spambase" : (UCI_BASE_URL + "spambase.data", 57),
     #"dexter" : (UCI_BASE_URL + "dexter/DEXTER/", -1)
 }
 
@@ -582,29 +578,7 @@ def load_classification_dataset(name_or_path: str,
         A tuple containing the data and the labels with the specified type.
     """
 
-    if name_or_path == "iris":
-        dataset = datasets.load_iris()
-        X, y = dataset.data, dataset.target
-    elif name_or_path == "breast":
-        dataset = datasets.load_breast_cancer()
-        X, y = dataset.data, dataset.target
-    elif name_or_path == "digits":
-        dataset = datasets.load_digits()
-        X, y = dataset.data, dataset.target
-    elif name_or_path == "wine":
-        dataset = datasets.load_wine()
-        X, y = dataset.data, dataset.target
-    elif name_or_path == "reuters":
-        url = "http://download.joachims.org/svm_light/examples/example1.tar.gz"
-        folder = download_and_untar(url)[0]
-        X_tr, y_tr = load_svmlight_file(folder + "/train.dat")
-        X_te, y_te = load_svmlight_file(folder + "/test.dat")
-        X_te = np.pad(X_te.toarray(), [(0, 0), (0, 17)], mode='constant', constant_values=0)
-        X = np.vstack([X_tr.toarray(), X_te])
-        y = np.concatenate([y_tr, y_te])
-        y = LabelEncoder().fit_transform(y)
-        shutil.rmtree(folder)
-    elif name_or_path in {"sonar", "ionosphere", "abalone", "banknote", "spambase"}:
+    if name_or_path == "spambase":
         url, label_id = UCI_URL_AND_CLASS[name_or_path]
         LOG.info("Downloading dataset %s from '%s'." %(name_or_path, url))
         data = pd.read_csv(url, header=None).to_numpy()
