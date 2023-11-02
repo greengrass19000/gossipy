@@ -19,7 +19,7 @@ set_seed(98765)
 X, y = load_classification_dataset("spambase", as_tensor=True)
 data_handler = ClassificationDataHandler(X, y, test_size=.1)
 dispatcher = DataDispatcher(data_handler, n=100, eval_on_user=False, auto_assign=True)
-topology = StaticP2PNetwork(100, topology=None)
+topology = StaticP2PNetwork(100, to_numpy_array(random_regular_graph(20, 100, seed=42)))
 net = LogisticRegression(data_handler.Xtr.shape[1], 2)
 
 nodes = PartitioningBasedNode.generate(
@@ -44,10 +44,12 @@ simulator = TokenizedGossipSimulator(
     nodes=nodes,
     data_dispatcher=dispatcher,
     token_account=RandomizedTokenAccount(C=20, A=10),
-    utility_fun=lambda mh1, mh2, msg: 1,
+    utility_fun=lambda mh1, mh2, msg: 1, #The utility function is always = 1 (i.e., utility is not used)
     delta=100,
     protocol=AntiEntropyProtocol.PUSH, 
     delay=UniformDelay(0, 10),
+    #online_prob=.2, #Approximates the average online rate of the STUNner's smartphone traces
+    #drop_prob=.1, #Simulates the possibility of message dropping
     sampling_eval=.1
 )
 
