@@ -1,5 +1,3 @@
-import networkx as nx
-from networkx.generators import random_regular_graph
 import torch
 from torch.nn.modules.loss import CrossEntropyLoss
 from gossipy import set_seed

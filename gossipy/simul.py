@@ -844,3 +844,233 @@ class All2AllGossipSimulator(GossipSimulator):
         pbar.close()
         self.notify_end()
         return
+
+class ChordSimulator(SimulationEventSender):
+    def __init__(self,
+                 nodes: Dict[int, GossipNode],
+                 data_dispatcher: DataDispatcher,
+                 delta: int,
+                 protocol: AntiEntropyProtocol,
+                 drop_prob: float=0., # [0,1] - probability of a message being dropped
+                 online_prob: float=1., # [0,1] - probability of a node to be online
+                 delay: Delay=ConstantDelay(0),
+                 sampling_eval: float=0., # [0, 1] - percentage of nodes to evaluate
+                ):
+        """Class that implements a *vanilla* gossip learning simulation.
+
+        The simulation is divided into "rounds" and each round consists of a ``delta`` timesteps.
+        A single time step represent the time unit of the simulation. At each time step, the nodes
+        that timed out act according to the gossip protocol, e.g., in the case of the PUSH protocol,
+        the nodes send a message (i.e., its model) to a random neighbor. The message arrives at the
+        destination node with a ``delay`` (see :class:`gossipy.simul.Delay`). Messages can also drop
+        according to a probability defined by the ``drop_prob`` parameter. Similarly, nodes can 
+        drop according to a probability equals to ``1 - online_prob``. Nodes are considered in a 
+        random order even if they time out in the same timestep.
+
+        The simulator implements the design pattern Observer (actually Event Receiver) extending
+        the :class:`gossipy.simul.SimulationEventSender` class. The events are:
+
+        - :meth:`update_message`: a message has been sent or dropped;
+        - :meth:`update_evaluation`: an evaluation has been computed;
+        - :meth:`update_timestep`: a timestep has been performed;
+        - :meth:`update_end`: the simulation has ended.
+
+        Parameters
+        ----------
+        nodes : dict[int, GossipNode]
+            The nodes participating in the simulation. The keys are the node ids, and the values
+            are the corresponding nodes (instances of the class :class:`GossipNode`).
+        data_dispatcher : DataDispatcher
+            The data dispatcher. Useful if the evaluation is performed on a separate test set, i.e.,
+            not on the nodes.
+        delta : int
+            The number of timesteps of a round.
+        protocol : AntiEntropyProtocol
+            The protocol of the gossip simulation.
+        drop_prob : float, default=0.
+            The probability of a message being dropped.
+        online_prob : float, default=1.
+            The probability of a node to be online.
+        delay : Delay, default=ConstantDelay(0)
+            The (potential) function delay of the messages.
+        sampling_eval : float, default=0.
+            The percentage of nodes to use during evaluate. If 0 or 1, all nodes are considered.
+        """
+        
+        assert 0 <= drop_prob <= 1, "drop_prob must be in the range [0,1]."
+        assert 0 <= online_prob <= 1, "online_prob must be in the range [0,1]."
+        assert 0 <= sampling_eval <= 1, "sampling_eval must be in the range [0,1]."
+
+        self.data_dispatcher = data_dispatcher
+        self.n_nodes = len(nodes)
+        self.delta = delta #round_len
+        self.protocol = protocol
+        self.drop_prob = drop_prob
+        self.online_prob = online_prob
+        self.delay = delay
+        self.sampling_eval = sampling_eval
+        self.initialized = False
+        self.nodes = nodes
+        
+
+    def init_nodes(self, seed:int=98765) -> None:
+        """Initializes the nodes.
+
+        The initialization of the nodes usually involves the initialization of the local model
+        (see :meth:`GossipNode.init_model`).
+
+        Parameters
+        ----------
+        seed : int, default=98765
+            The seed for the random number generator.
+        """
+
+        self.initialized = True
+        for _, node in self.nodes.items():
+            node.init_model()
+    
+    # def add_nodes(self, nodes: List[GossipNode]) -> None:
+    #     assert not self.initialized, "'init_nodes' must be called before adding new nodes."
+    #     for node in nodes:
+    #         node.idx = self.n_nodes
+    #         node.init_model()
+    #         self.nodes[node.idx] = node
+    #         self.n_nodes += 1
+
+
+    def start(self, n_rounds: int=100) -> None:
+        """Starts the simulation.
+
+        The simulation handles the messages exchange between the nodes for ``n_rounds`` rounds.
+        If attached to a :class:`SimulationReport`, the report is updated at each time step, 
+        sent/fail message and evaluation.
+
+        Parameters
+        ----------
+        n_rounds : int, default=100
+            The number of rounds of the simulation.
+        """
+
+        assert self.initialized, \
+               "The simulator is not inizialized. Please, call the method 'init_nodes'."
+        LOG.info("Simulation started.")
+        node_ids = np.arange(self.n_nodes)
+        
+        pbar = track(range(n_rounds * self.delta), description="Simulating...")
+        msg_queues = DefaultDict(list)
+        rep_queues = DefaultDict(list)
+
+        try:
+            for t in pbar:
+                if t % self.delta == 0: 
+                    shuffle(node_ids)
+                    
+                for i in node_ids:
+                    node = self.nodes[i]
+                    if node.timed_out(t):
+
+                        peer = node.get_peer()
+                        msg = node.send(t, peer, self.protocol)
+                        self.notify_message(False, msg)
+                        if msg:
+                            if random() >= self.drop_prob:
+                                d = self.delay.get(msg)
+                                msg_queues[t + d].append(msg)
+                            else:
+                                self.notify_message(True)
+                
+                is_online = random(self.n_nodes) <= self.online_prob
+                for msg in msg_queues[t]:
+                    if is_online[msg.receiver]:
+                        reply = self.nodes[msg.receiver].receive(t, msg)
+                        if reply:
+                            if random() > self.drop_prob:
+                                d = self.delay.get(reply)
+                                rep_queues[t + d].append(reply)
+                            else:
+                                self.notify_message(True)
+                    else:
+                        self.notify_message(True)
+                del msg_queues[t]
+
+                for reply in rep_queues[t]:
+                    if is_online[reply.receiver]:
+                        self.notify_message(False, reply)
+                        self.nodes[reply.receiver].receive(t, reply)
+                    else:
+                        self.notify_message(True)
+                    
+                del rep_queues[t]
+
+                if (t+1) % self.delta == 0:
+                    if self.sampling_eval > 0:
+                        sample = choice(list(self.nodes.keys()),
+                                        max(int(self.n_nodes * self.sampling_eval), 1))
+                        ev = [self.nodes[i].evaluate() for i in sample if self.nodes[i].has_test()]
+                    else:
+                        ev = [n.evaluate() for _, n in self.nodes.items() if n.has_test()]
+                    if ev:
+                        self.notify_evaluation(t, True, ev)
+                    
+                    if self.data_dispatcher.has_test():
+                        if self.sampling_eval > 0:
+                            ev = [self.nodes[i].evaluate(self.data_dispatcher.get_eval_set())
+                                for i in sample]
+                        else:
+                            ev = [n.evaluate(self.data_dispatcher.get_eval_set())
+                                for _, n in self.nodes.items()]
+                        if ev:
+                            self.notify_evaluation(t, False, ev)
+                self.notify_timestep(t)
+
+        except KeyboardInterrupt:
+            LOG.warning("Simulation interrupted by user.")
+        
+        pbar.close()
+        self.notify_end()
+        return
+    
+    def save(self, filename) -> None:
+        """Saves the state of the simulator (including the models' cache).
+
+        Parameters
+        ----------
+        filename : str
+            The name of the file to save the state.
+        """
+
+        dump = {
+            "simul": self,
+            "cache": CACHE.get_cache()
+        }
+        with open(filename, 'wb') as f:
+            dill.dump(dump, f)
+
+    @classmethod
+    def load(cls, filename) -> ChordSimulator:
+        """Loads the state of the simulator (including the models' cache).
+
+        Parameters
+        ----------
+        filename : str
+            The name of the file to load the state.
+        
+        Returns
+        -------
+        ChordSimulator
+            The simulator loaded from the file.
+        """
+
+        with open(filename, 'rb') as f:
+            loaded = dill.load(f)
+            CACHE.load(loaded["cache"])
+            return loaded["simul"]
+    
+    def __repr__(self) -> str:
+        return str(self)
+
+    def __str__(self) -> str:
+        skip = ["nodes", "model_handler_params", "gossip_node_params"]
+        attrs = {k: v for k, v in self.__dict__.items() if k not in skip}
+        return f"{self.__class__.__name__} \
+                 {str(json.dumps(attrs, indent=4, sort_keys=True, cls=StringEncoder))}"

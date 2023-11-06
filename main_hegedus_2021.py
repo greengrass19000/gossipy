@@ -1,7 +1,5 @@
 import torch
 from torch.nn.modules.loss import CrossEntropyLoss
-from networkx import to_numpy_array
-from networkx.generators.random_graphs import random_regular_graph
 from gossipy import set_seed
 from gossipy.core import UniformDelay, AntiEntropyProtocol, CreateModelMode, StaticP2PNetwork
 from gossipy.node import GossipNode, PartitioningBasedNode, SamplingBasedNode
@@ -54,6 +52,6 @@ simulator = TokenizedGossipSimulator(
 report = SimulationReport()
 simulator.add_receiver(report)
 simulator.init_nodes(seed=42)
-simulator.start(n_rounds=1000)
+simulator.start(n_rounds=100)
 
 plot_evaluation([[ev for _, ev in report.get_evaluation(False)]], "Overall test results")
