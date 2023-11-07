@@ -621,7 +621,7 @@ def load_recsys_dataset(name: str,
 
     ratings = {}
     if name in {"ml-100k", "ml-1m", "ml-10m", "ml-20m"}:
-        folder = download_and_unzip("https://files.grouplens.org/datasets/movielens/%s.zip" %name)[0]
+        # folder = download_and_unzip("https://files.grouplens.org/datasets/movielens/%s.zip" %name)[0]
         if name == "ml-100k":
             filename = "u.data"
             sep = "\t"
@@ -634,7 +634,7 @@ def load_recsys_dataset(name: str,
 
         ucnt = 0
         icnt = 0
-        with open(os.path.join(path, folder, filename), "r") as f:
+        with open("".join(["data/", name, "/", filename]), "r") as f:
             umap = {}
             imap = {}
             for line in f.readlines():
@@ -649,9 +649,11 @@ def load_recsys_dataset(name: str,
                     icnt += 1
                 ratings[umap[u]].append((imap[i], r))
 
-        shutil.rmtree(folder)
+        # shutil.rmtree(folder)
     else:
         raise ValueError("Unknown dataset %s." %name)
+    
+    LOG.info("Read data successfully")
     return ratings, ucnt, icnt
 
 
