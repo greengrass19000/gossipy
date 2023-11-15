@@ -9,9 +9,9 @@ import dill
 import json
 
 from . import CACHE, LOG, CacheKey
-from .core import AntiEntropyProtocol, Message, ConstantDelay, Delay, MixingMatrix, UniformMixing
+from .core import AntiEntropyProtocol, Message, ConstantDelay, Delay, MixingMatrix, UniformMixing, ChordMessage
 from .data import DataDispatcher
-from .node import GossipNode, All2AllGossipNode
+from .node import GossipNode, All2AllGossipNode, ChordNode
 from .flow_control import TokenAccount
 from .model.handler import ModelHandler
 from .utils import StringEncoder
@@ -31,14 +31,15 @@ __all__ = ["SimulationEventReceiver",
            "SimulationEventSender",
            "SimulationReport",
            "GossipSimulator",
-           "TokenizedGossipSimulator"]
+           "TokenizedGossipSimulator",
+           "ChordSimulator"]
 
 
 class SimulationEventReceiver(ABC):
     """The event receiver interface declares all the update methods, used by the event sender."""
 
     @abstractmethod
-    def update_message(self, failed: bool, msg: Optional[Message]=None) -> None:
+    def update_message(self, failed: bool, msg: Optional[Union[Message, ChordMessage]]=None) -> None:
         """Receives an update about a sent or a failed message.
 
         Parameters
@@ -123,7 +124,7 @@ class SimulationEventSender(ABC):
             pass
 
 
-    def notify_message(self, falied: bool, msg: Optional[Message]=None) -> None:
+    def notify_message(self, failed: bool, msg: Optional[Union[Message, ChordMessage]]=None) -> None:
         """Notifies all receivers about a sent message or a failed message.
 
         Parameters
@@ -135,7 +136,7 @@ class SimulationEventSender(ABC):
         """
 
         for er in self._receivers:
-            er.update_message(falied, msg)
+            er.update_message(failed, msg)
 
 
     def notify_evaluation(self,
@@ -222,12 +223,13 @@ class SimulationReport(SimulationEventReceiver):
         self._local_evaluations = []
     
     # docstr-coverage:inherited
-    def update_message(self, failed: bool, msg: Optional[Message]=None) -> None:
+    def update_message(self, failed: bool, msg: Optional[Union[Message, ChordMessage]]=None) -> None:
         if failed:
             self._failed_messages += 1
         else:
             assert msg is not None, "msg is not set"
             self._sent_messages += 1
+            # LOG.info(type(msg))
             self._total_size += msg.get_size()
     
     # docstr-coverage:inherited
@@ -423,7 +425,7 @@ class GossipSimulator(SimulationEventSender):
                         self.notify_message(True)
                     
                 del rep_queues[t]
-
+                #Evaluation
                 if (t+1) % self.delta == 0:
                     if self.sampling_eval > 0:
                         sample = choice(list(self.nodes.keys()),
@@ -497,9 +499,9 @@ class GossipSimulator(SimulationEventSender):
         return f"{self.__class__.__name__} \
                  {str(json.dumps(attrs, indent=4, sort_keys=True, cls=StringEncoder))}"
 
-class ChordSimulator(SimulationEventSender):
+class ChordSimulator(GossipSimulator):
     def __init__(self,
-                 nodes: Dict[int, GossipNode],
+                 nodes: Dict[int, ChordNode],
                  data_dispatcher: DataDispatcher,
                  delta: int,
                  protocol: AntiEntropyProtocol,
@@ -508,29 +510,12 @@ class ChordSimulator(SimulationEventSender):
                  delay: Delay=ConstantDelay(0),
                  sampling_eval: float=0., # [0, 1] - percentage of nodes to evaluate
                 ):
-        assert 0 <= drop_prob <= 1, "drop_prob must be in the range [0,1]."
-        assert 0 <= online_prob <= 1, "online_prob must be in the range [0,1]."
-        assert 0 <= sampling_eval <= 1, "sampling_eval must be in the range [0,1]."
+        super().__init__(nodes, data_dispatcher, delta, protocol, drop_prob, online_prob, delay, sampling_eval)
 
-        self.data_dispatcher = data_dispatcher
-        self.n_nodes = len(nodes)
-        self.delta = delta #round_len
-        self.protocol = protocol
-        self.drop_prob = drop_prob
-        self.online_prob = online_prob
-        self.delay = delay
-        self.sampling_eval = sampling_eval
-        self.initialized = False
-        self.nodes = nodes
-        
+    def start(self, 
+              W_matrix: MixingMatrix,
+              n_rounds: int=100) -> None:
 
-    def init_nodes(self, seed:int=98765) -> None:
-        self.initialized = True
-        for _, node in self.nodes.items():
-            node.init_model()
-
-
-    def start(self, n_rounds: int=100) -> None:
         assert self.initialized, \
                "The simulator is not inizialized. Please, call the method 'init_nodes'."
         LOG.info("Simulation started.")
@@ -538,49 +523,51 @@ class ChordSimulator(SimulationEventSender):
         
         pbar = track(range(n_rounds * self.delta), description="Simulating...")
         msg_queues = DefaultDict(list)
-        rep_queues = DefaultDict(list)
-
         try:
             for t in pbar:
                 if t % self.delta == 0: 
                     shuffle(node_ids)
-                    
+                
                 for i in node_ids:
                     node = self.nodes[i]
-                    if node.timed_out(t):
-
-                        peer = node.get_peer()
-                        msg = node.send(t, peer, self.protocol)
-                        self.notify_message(False, msg)
-                        if msg:
-                            if random() >= self.drop_prob:
-                                d = self.delay.get(msg)
-                                msg_queues[t + d].append(msg)
-                            else:
-                                self.notify_message(True)
+                    if node.timed_out(t, W_matrix[i]):
+                        peers = node.get_peers()
+                        limit = node.idx - 1 if node.idx - 1 >= 0 else self.n_nodes - 1
+                        for peer in peers:
+                            msg = node.send(t, peer, self.protocol, limit)
+                            limit = peer - 1 if peer - 1 >= 0 else self.n_nodes - 1
+                            self.notify_message(False, msg)
+                            if msg:
+                                if random() >= self.drop_prob:
+                                    d = self.delay.get(msg)
+                                    msg_queues[t + d].append(msg)
+                                else:
+                                    self.notify_message(True)
                 
                 is_online = random(self.n_nodes) <= self.online_prob
                 for msg in msg_queues[t]:
-                    if is_online[msg.receiver]:
-                        reply = self.nodes[msg.receiver].receive(t, msg)
-                        if reply:
-                            if random() > self.drop_prob:
-                                d = self.delay.get(reply)
-                                rep_queues[t + d].append(reply)
-                            else:
-                                self.notify_message(True)
+                    receiver = msg.receiver
+                    if is_online[receiver]:
+                        receivernode = self.nodes[receiver]
+                        if msg == None:
+                            continue
+                        limit = receivernode.receive(t, msg).limit
+                        # TODO: Change the way the receiver send the message
+                        if receivernode.timed_out(t + 1, W_matrix[i]):
+                            peers = receivernode.get_peers()
+                            for peer in peers:
+                                if peer > limit:
+                                    break
+                                msgtosend = receivernode.send(t + 1, peer, self.protocol, limit)
+                                self.notify_message(False, msgtosend)
+                                if random() >= self.drop_prob:
+                                    d = self.delay.get(msgtosend)
+                                    msg_queues[t + d + 1].append(msgtosend)
+                                else:
+                                    self.notify_message(True)
                     else:
                         self.notify_message(True)
                 del msg_queues[t]
-
-                for reply in rep_queues[t]:
-                    if is_online[reply.receiver]:
-                        self.notify_message(False, reply)
-                        self.nodes[reply.receiver].receive(t, reply)
-                    else:
-                        self.notify_message(True)
-                    
-                del rep_queues[t]
 
                 if (t+1) % self.delta == 0:
                     if self.sampling_eval > 0:
@@ -605,35 +592,11 @@ class ChordSimulator(SimulationEventSender):
 
         except KeyboardInterrupt:
             LOG.warning("Simulation interrupted by user.")
+            exit()
         
         pbar.close()
         self.notify_end()
         return
-    
-    def save(self, filename) -> None:
-        dump = {
-            "simul": self,
-            "cache": CACHE.get_cache()
-        }
-        with open(filename, 'wb') as f:
-            dill.dump(dump, f)
-
-    @classmethod
-    def load(cls, filename) -> ChordSimulator:
-        with open(filename, 'rb') as f:
-            loaded = dill.load(f)
-            CACHE.load(loaded["cache"])
-            return loaded["simul"]
-    
-    def __repr__(self) -> str:
-        return str(self)
-
-    def __str__(self) -> str:
-        skip = ["nodes", "model_handler_params", "gossip_node_params"]
-        attrs = {k: v for k, v in self.__dict__.items() if k not in skip}
-        return f"{self.__class__.__name__} \
-                 {str(json.dumps(attrs, indent=4, sort_keys=True, cls=StringEncoder))}"
-
 
 class TokenizedGossipSimulator(GossipSimulator):
     def __init__(self,

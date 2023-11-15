@@ -650,6 +650,8 @@ class WeightedTMH(TorchModelHandler):
             self.model = copy.deepcopy(recv_model.model)
             self.n_updates = recv_model.n_updates
         elif self.mode == CreateModelMode.MERGE_UPDATE:
+            # print(type(recv_model))
+            # print(recv_model)
             self._merge(recv_model, weights)
             self._update(data)
         elif self.mode == CreateModelMode.UPDATE_MERGE:

@@ -8,10 +8,12 @@ from typing import Any, Optional, Union, Dict, Tuple, Iterable
 from gossipy.data import DataDispatcher
 
 from . import CACHE, LOG
-from .core import AntiEntropyProtocol, CreateModelMode, MessageType, Message, P2PNetwork
+from .core import AntiEntropyProtocol, CreateModelMode, MessageType, Message, P2PNetwork, ChordMessage
 from .utils import choice_not_n
 from .model.handler import ModelHandler, PartitionedTMH, SamplingTMH, WeightedTMH
 from .model.sampling import TorchModelSampling
+
+from math import log2
 
 # AUTHORSHIP
 __version__ = "0.0.1"
@@ -28,7 +30,8 @@ __all__ = ["GossipNode",
            "CacheNeighNode",
            "SamplingBasedNode",
            "PartitioningBasedNode",
-           "PENSNode"]
+           "PENSNode",
+           "ChordNode"]
 
 
 class GossipNode():
@@ -118,8 +121,21 @@ class GossipNode():
         bool
             Whether the node has timed out.
         """
-
         return ((t % self.round_len) == self.delta) if self.sync else ((t % self.delta) == 0)
+    
+    def next_timed_out(self, t: int) -> int:
+        """Return the next timed out of the node for the asynchronous (sync = False)
+
+        Args:
+            t (int): _description_
+
+        Returns:
+            int: _description_
+        """
+        tmp = (t + 1) % self.delta
+        tmp = self.delta - tmp
+        return tmp
+        pass
 
     def send(self,
              t: int,
@@ -283,106 +299,75 @@ class GossipNode():
         return nodes    
 #############################################################################################################  
 # Nam Dung 2023
-class ChordNode():
+class ChordNode(GossipNode):
     def __init__(self,
                  idx: int, #node's id
                  data: Union[Tuple[Tensor, Optional[Tensor]],
                              Tuple[ndarray, Optional[ndarray]]], #node's data
                  round_len: int, #round length
-                 model_handler: ModelHandler, #object that handles the model learning/inference
+                 model_handler: WeightedTMH, #object that handles the model learning/inference
                  p2p_net: P2PNetwork,
                  sync: bool=True):
-        self.idx: int = idx
-        self.data:  Union[Tuple[Tensor, Optional[Tensor]], Tuple[ndarray, Optional[ndarray]]] = data
-        self.round_len: int = round_len
-        self.model_handler: ModelHandler = model_handler
-        self.sync: bool = sync
-        self.delta: int = randint(0, round_len) if sync else int(normal(round_len, round_len/10))
-        self.p2p_net = p2p_net
+        super(ChordNode, self).__init__(idx,
+                                        data,
+                                        round_len,
+                                        model_handler,
+                                        p2p_net,
+                                        sync)
+        m = int(log2(p2p_net.size()))
+        finger_size = 2**m
+        self.finger = [1]*m
+        pow2 = 1
+        cur = idx
+        for i in range(m):
+            cur = cur + pow2
+            pow2 = pow2 + pow2
+            if cur >= finger_size:
+                cur = cur - finger_size
+            self.finger[i] = cur
+        self.finger.reverse()
+        self.local_cache = {}
+    
+    # docstr-coverage:inherited
+    def timed_out(self, t: int, weights: Iterable[float]) -> int:
+        tout = super().timed_out(t)
+        if tout and self.local_cache:
+            self.model_handler([CACHE.pop(k) for k in self.local_cache.values()], self.data[0], weights)
+            self.local_cache = {}
+        return tout 
+    
+    def get_peers(self) -> int:
+        return self.finger
+    
+    def get_limit(self) -> int:
+        return self.idx - 1 if (self.idx - 1 != -1) else self.p2p_net.size() - 1
 
-    def init_model(self, local_train: bool=True, *args, **kwargs) -> None:
-        self.model_handler.init()
-        if local_train:
-            self.model_handler._update(self.data[0])
-
-    def get_peer(self) -> int:
-        peers = self.p2p_net.get_peers(self.idx)
-        return random.choice(peers) if peers else choice_not_n(0, self.p2p_net.size(), self.idx)
-        
-    def timed_out(self, t: int) -> bool:
-        return ((t % self.round_len) == self.delta) if self.sync else ((t % self.delta) == 0)
-
+    # docstr-coverage:inherited
     def send(self,
              t: int,
              peer: int,
-             protocol: AntiEntropyProtocol) -> Message:
+             protocol: AntiEntropyProtocol,
+             limit: int) -> Union[ChordMessage, None]:
+
         if protocol == AntiEntropyProtocol.PUSH:
             key = self.model_handler.caching(self.idx)
-            return Message(t, self.idx, peer, MessageType.PUSH, (key,))
-        elif protocol == AntiEntropyProtocol.PULL:
-            return Message(t, self.idx, peer, MessageType.PULL, None)
-        elif protocol == AntiEntropyProtocol.PUSH_PULL:
-            key = self.model_handler.caching(self.idx)
-            return Message(t, self.idx, peer, MessageType.PUSH_PULL, (key,))
+            return ChordMessage(t, self.idx, peer, limit, MessageType.PUSH, (key,))
         else:
-            raise ValueError("Unknown protocol %s." %protocol)
+            raise ValueError("ChordNode only supports PUSH protocol.")
 
-    def receive(self, t: int, msg: Message) -> Union[Message, None]:
+    # docstr-coverage:inherited
+    def receive(self, t: int, msg: ChordMessage) -> Union[ChordMessage, None]:
         msg_type: MessageType
         recv_model: Any 
-        msg_type, recv_model = msg.type, msg.value[0] if msg.value else None
-        if msg_type == MessageType.PUSH or \
-           msg_type == MessageType.REPLY or \
-           msg_type == MessageType.PUSH_PULL:
-            recv_model = CACHE.pop(recv_model)
-            self.model_handler(recv_model, self.data[0])
-
-        if msg_type == MessageType.PULL or \
-           msg_type == MessageType.PUSH_PULL:
-            key = self.model_handler.caching(self.idx)
-            return Message(t, self.idx, msg.sender, MessageType.REPLY, (key,))
+        sender, msg_type, recv_model = msg.sender, msg.type, msg.value[0] if msg.value else None
+        if msg_type == MessageType.PUSH:
+            # this should never happen
+            if sender in self.local_cache:
+                # LOG.info("something happened")
+                CACHE.pop(self.local_cache[sender])
+            self.local_cache[sender] = recv_model
+            return msg
         return None
-    
-    def initBroadcast(self, t: int, msg: Message):
-        pass
-
-    def evaluate(self, ext_data: Optional[Any]=None) -> Dict[str, float]:
-        if ext_data is None:
-            return self.model_handler.evaluate(self.data[1])
-        else:
-            return self.model_handler.evaluate(ext_data)
-    
-    def has_test(self) -> bool:
-        if isinstance(self.data, tuple):
-            return self.data[1] is not None
-        else: return True
-    
-    def __repr__(self) -> str:
-        return str(self)
-    
-    def __str__(self) -> str:
-        return f"{self.__class__.__name__} #{self.idx} (Δ={self.delta})"
-
-    @classmethod
-    def generate(cls,
-                 data_dispatcher: DataDispatcher,
-                 p2p_net: P2PNetwork,
-                 model_proto: ModelHandler,
-                 round_len: int,
-                 sync: bool,
-                 **kwargs) -> Dict[int, ChordNode]:
-        
-        nodes = {}
-        for idx in range(p2p_net.size()):
-            node = cls(idx=idx,
-                       data=data_dispatcher[idx], 
-                       round_len=round_len, 
-                       model_handler=model_proto.copy(), 
-                       p2p_net=p2p_net, 
-                       sync=sync, 
-                       **kwargs)
-            nodes[idx] = node
-        return nodes
 #############################################################################################################
 
 # Hegedus 2021

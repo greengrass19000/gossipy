@@ -180,6 +180,7 @@ class CacheKey(Sizeable):
         elif isinstance(val, Sizeable): return val.get_size()
         else: 
             LOG.warning("Impossible to compute the size of %s. Set to 0." %val)
+            a = 0 / 0
             return 0
     
     def __repr__(self):

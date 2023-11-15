@@ -21,12 +21,12 @@ __all__ = ["CreateModelMode",
            "AntiEntropyProtocol",
            "MessageType",
            "Message",
+           "ChordMessage",
            "Delay",
            "UniformDelay",
            "LinearDelay",
            "P2PNetwork",
            "StaticP2PNetwork"]
-
 
 class CreateModelMode(Enum):
     """The mode for creating/updating the gossip model."""
@@ -43,7 +43,6 @@ class CreateModelMode(Enum):
     PASS = 4
     """Do nothing."""
 
-
 class AntiEntropyProtocol(Enum):
     """The overall protocol of the gossip algorithm."""
 
@@ -56,7 +55,6 @@ class AntiEntropyProtocol(Enum):
     PUSH_PULL = 3
     """Push the local model to the gossip node(s) and then pull the gossip model from the gossip \
         node(s)."""
-
 
 class MessageType(Enum):
     """The type of a message."""
@@ -73,7 +71,6 @@ class MessageType(Enum):
     PUSH_PULL = 4
     """The message contains the model (and possibly additional information) and also asks for the \
         model to the receiver."""
-
 
 class Message(Sizeable):
     def __init__(self,
@@ -151,6 +148,49 @@ class Message(Sizeable):
         s += "ACK" if self.value is None else str(self.value)
         return s
 
+class ChordMessage(Sizeable):
+    def __init__(self,
+                 timestamp: int,
+                 sender: int,
+                 receiver: int,
+                 limit: int,
+                 type: MessageType,
+                 value: Tuple[Any, ...]):
+        
+        self.timestamp: int = timestamp
+        self.sender: int = sender
+        self.receiver: int = receiver
+        self.limit: int = limit
+        self.type: MessageType = type
+        self.value: Tuple[Any, ...] = value
+        
+    def get_size(self) -> int:
+        if self.value is None: return 1
+        if isinstance(self.value, (tuple, list)):
+            sz: int = 0
+            for t in self.value:
+                # print('another')
+                # print(type(t))
+                if t is None: continue
+                if isinstance(t, (float, int, bool)): sz += 1
+                elif isinstance(t, Sizeable): sz += t.get_size()
+                else: raise TypeError("Cannot compute the size of the payload!")
+            return max(sz, 1)
+        elif isinstance(self.value, Sizeable):
+            return self.value.get_size()
+        elif isinstance(self.value, (float, int, bool)):
+            return 1
+        else:
+            raise TypeError("Cannot compute the size of the payload!")
+        
+    def __repr__(self) -> str:
+        s: str = "T%d [%d -> %d upto %d] {%s}: " %(self.timestamp,
+                                           self.sender,
+                                           self.receiver,
+                                           self.limit,
+                                           self.type.name)
+        s += "ACK" if self.value is None else str(self.value)
+        return s
 
 class Delay(ABC):
     """A class representing a delay.
@@ -159,7 +199,7 @@ class Delay(ABC):
     """
 
     @abstractmethod
-    def get(self, msg: Message) -> int:
+    def get(self, msg: Union[Message, ChordMessage]) -> int:
         """Returns the delay for the specified message.
 
         Parameters
@@ -174,7 +214,6 @@ class Delay(ABC):
         """
 
         pass
-
 
 class ConstantDelay(Delay):
     _delay: int
@@ -191,7 +230,7 @@ class ConstantDelay(Delay):
         assert delay >= 0, "Delay must be non-negative!"
         self._delay = delay
     
-    def get(self, msg: Message) -> int:
+    def get(self, msg: Union[Message, ChordMessage]) -> int:
         """Returns the delay for the specified message.
 
         The delay is fixed regardless of the specific message.
@@ -215,7 +254,6 @@ class ConstantDelay(Delay):
     def __str__(self) -> str:
         return "ConstantDelay(%d)" %self._delay
 
-
 class UniformDelay(Delay):
     _min_delay: int
     _max_delay: int
@@ -236,7 +274,7 @@ class UniformDelay(Delay):
         self._min_delay = min_delay
         self._max_delay = max_delay
     
-    def get(self, msg: Message) -> int:
+    def get(self, msg: Union[Message, ChordMessage]) -> int:
         """Returns the delay for the specified message.
 
         The delay is uniformly distributed between the minimum and maximum delay
@@ -257,7 +295,6 @@ class UniformDelay(Delay):
     
     def __str__(self) -> str:
         return "UniformDelay(%d, %d)" %(self._min_delay, self._max_delay) 
-
 
 class LinearDelay(Delay):
     _overhead: int
@@ -282,7 +319,7 @@ class LinearDelay(Delay):
         self._timexunit = timexunit
         self._overhead = overhead
     
-    def get(self, msg: Message) -> int:
+    def get(self, msg: Union[Message, ChordMessage]) -> int:
         """Returns the delay for the specified message.
 
         | The delay is linear with respect to the message's size and it is computed as follows:
@@ -305,8 +342,6 @@ class LinearDelay(Delay):
     
     def __str__(self) -> str:
         return "LinearDelay(time_x_unit=%d, overhead=%d)" %(self._timexunit, self._overhead) 
-
-
 
 class P2PNetwork(ABC):
     _topology: Union[None, csr_matrix, np.ndarray]
@@ -360,7 +395,6 @@ class P2PNetwork(ABC):
 
         pass
 
-
 class StaticP2PNetwork(P2PNetwork):
     def __init__(self, num_nodes: int, topology: Optional[Union[np.ndarray, csr_matrix]]=None):
         """A class representing a static network topology.
@@ -388,7 +422,6 @@ class StaticP2PNetwork(P2PNetwork):
         assert 0 <= node_id < self._num_nodes
         return self._topology[node_id]
 
-
 class MixingMatrix:
     def __init__(self, p2p_net: P2PNetwork) -> None:
         self.p2p_net = p2p_net
@@ -415,7 +448,6 @@ class MixingMatrix:
     def __str__(self) -> str:
         return "MixingMatrix(%s)" %self.p2p_net
 
-
 class UniformMixing(MixingMatrix):
     def get(self, node_id: int) -> np.ndarray:
         """Returns the mixing matrix for the specified node.
@@ -432,7 +464,6 @@ class UniformMixing(MixingMatrix):
         """
         size = self.p2p_net.size(node_id) + 1
         return np.ones(size) / size
-
 
 class MetropolisHastingsMixing(MixingMatrix):
     def get(self, node_id: int) -> np.ndarray:
