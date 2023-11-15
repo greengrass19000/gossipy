@@ -181,7 +181,6 @@ class ModelHandler(Sizeable, ModelEqualityMixin, ABC):
     def __str__(self) -> str:
         return f"{self.__class__.__name__}(model={str(self.model)}_{self.n_updates}, mode={self.mode})"
      
-
 class TorchModelHandler(ModelHandler):
     def __init__(self,
                  net: TorchModel,
@@ -333,7 +332,6 @@ class TorchModelHandler(ModelHandler):
         self.model = self.model.to("cpu")
         return res
 
-
 class AdaLineHandler(ModelHandler):
     def __init__(self,
                  net: AdaLine,
@@ -390,7 +388,6 @@ class AdaLineHandler(ModelHandler):
 
         return res
 
-
 class PegasosHandler(AdaLineHandler):
     def __init__(self,
                  net: AdaLine,
@@ -422,7 +419,6 @@ class PegasosHandler(AdaLineHandler):
             self.model.model *= (1. - lr * self.learning_rate)
             self.model.model += ((y_pred * y[i] - 1) < 0).float() * (lr * y[i] * x[i])
 
-
 class SamplingTMH(TorchModelHandler):
     def __init__(self, sample_size: float, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -451,7 +447,6 @@ class SamplingTMH(TorchModelHandler):
         else:
             raise ValueError("Unknown create model mode %s." %str(self.mode))
         
-
 class PartitionedTMH(TorchModelHandler):
     def __init__(self,
                  net: TorchModel,
@@ -524,7 +519,6 @@ class PartitionedTMH(TorchModelHandler):
         CACHE.push(key, self.copy())
         return key
 
-
 class MFModelHandler(ModelHandler):
     def __init__(self,
                  dim: int,
@@ -574,7 +568,6 @@ class MFModelHandler(ModelHandler):
     
     def get_size(self) -> int:
         return self.k * (self.n_items + 1)
-
 
 class KMeansHandler(ModelHandler):
     def __init__(self,
@@ -637,7 +630,6 @@ class KMeansHandler(ModelHandler):
     
     def get_size(self) -> int:
         return self.k * self.dim
-
 
 class WeightedTMH(TorchModelHandler):
 

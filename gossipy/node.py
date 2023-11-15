@@ -123,19 +123,6 @@ class GossipNode():
         """
         return ((t % self.round_len) == self.delta) if self.sync else ((t % self.delta) == 0)
     
-    def next_timed_out(self, t: int) -> int:
-        """Return the next timed out of the node for the asynchronous (sync = False)
-
-        Args:
-            t (int): _description_
-
-        Returns:
-            int: _description_
-        """
-        tmp = (t + 1) % self.delta
-        tmp = self.delta - tmp
-        return tmp
-        pass
 
     def send(self,
              t: int,
@@ -314,17 +301,20 @@ class ChordNode(GossipNode):
                                         model_handler,
                                         p2p_net,
                                         sync)
-        m = int(log2(p2p_net.size()))
-        finger_size = 2**m
+        m = int(log2(p2p_net.size())) + 1
         self.finger = [1]*m
         pow2 = 1
         cur = idx
+        # print('another')
+        # print(self.idx)
         for i in range(m):
-            cur = cur + pow2
+            cur = idx + pow2
             pow2 = pow2 + pow2
-            if cur >= finger_size:
-                cur = cur - finger_size
+            if cur >= p2p_net.size():
+                cur = cur - p2p_net.size()
             self.finger[i] = cur
+        #     print(cur, end=' ')
+        # print('')
         self.finger.reverse()
         self.local_cache = {}
     
@@ -332,26 +322,30 @@ class ChordNode(GossipNode):
     def timed_out(self, t: int, weights: Iterable[float]) -> int:
         tout = super().timed_out(t)
         if tout and self.local_cache:
+            #TODO: don't delete the model imediately, remain it log() time steps
             self.model_handler([CACHE.pop(k) for k in self.local_cache.values()], self.data[0], weights)
             self.local_cache = {}
         return tout 
     
+    def next_timed_out(self, t: int) -> int:
+        tmp = t % self.delta
+        tmp = self.delta - tmp
+        return tmp
+    
     def get_peers(self) -> int:
         return self.finger
-    
-    def get_limit(self) -> int:
-        return self.idx - 1 if (self.idx - 1 != -1) else self.p2p_net.size() - 1
 
     # docstr-coverage:inherited
     def send(self,
              t: int,
+             sender: int,
              peer: int,
              protocol: AntiEntropyProtocol,
              limit: int) -> Union[ChordMessage, None]:
 
         if protocol == AntiEntropyProtocol.PUSH:
-            key = self.model_handler.caching(self.idx)
-            return ChordMessage(t, self.idx, peer, limit, MessageType.PUSH, (key,))
+            key = self.model_handler.caching(sender)
+            return ChordMessage(t, sender, peer, limit, MessageType.PUSH, (key,))
         else:
             raise ValueError("ChordNode only supports PUSH protocol.")
 
@@ -364,9 +358,11 @@ class ChordNode(GossipNode):
             # this should never happen
             if sender in self.local_cache:
                 # LOG.info("something happened")
-                CACHE.pop(self.local_cache[sender])
+                #TODO: Chờ đến lúc đến thằng limit rồi hẵng xóa
+                if self.idx == msg.limit:        
+                    CACHE.pop(self.local_cache[sender])
             self.local_cache[sender] = recv_model
-            return msg
+            # return msg
         return None
 #############################################################################################################
 

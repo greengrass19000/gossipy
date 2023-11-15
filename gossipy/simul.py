@@ -532,10 +532,10 @@ class ChordSimulator(GossipSimulator):
                     node = self.nodes[i]
                     if node.timed_out(t, W_matrix[i]):
                         peers = node.get_peers()
-                        limit = node.idx - 1 if node.idx - 1 >= 0 else self.n_nodes - 1
+                        limit = node.idx - 1 if node.idx != 0 else self.n_nodes - 1
                         for peer in peers:
-                            msg = node.send(t, peer, self.protocol, limit)
-                            limit = peer - 1 if peer - 1 >= 0 else self.n_nodes - 1
+                            msg = node.send(t, i, peer, self.protocol, limit)
+                            limit = peer - 1 if peer != 0 else self.n_nodes - 1
                             self.notify_message(False, msg)
                             if msg:
                                 if random() >= self.drop_prob:
@@ -551,25 +551,27 @@ class ChordSimulator(GossipSimulator):
                         receivernode = self.nodes[receiver]
                         if msg == None:
                             continue
-                        limit = receivernode.receive(t, msg).limit
-                        # TODO: Change the way the receiver send the message
-                        if receivernode.timed_out(t + 1, W_matrix[i]):
-                            peers = receivernode.get_peers()
-                            for peer in peers:
-                                if peer > limit:
-                                    break
-                                msgtosend = receivernode.send(t + 1, peer, self.protocol, limit)
-                                self.notify_message(False, msgtosend)
-                                if random() >= self.drop_prob:
-                                    d = self.delay.get(msgtosend)
-                                    msg_queues[t + d + 1].append(msgtosend)
-                                else:
-                                    self.notify_message(True)
+                        receivernode.receive(t, msg)
+                        limit = msg.limit
+                        sender = msg.sender
+                        # Continue to send the message
+                        # if receivernode.timed_out(t, W_matrix[i]):
+                        nextt = receivernode.next_timed_out(t)
+                        for peer in receivernode.finger:
+                            if peer > limit:
+                                continue
+                            # msgtosend = receivernode.send(nextt, sender, peer, self.protocol, limit)
+                            self.notify_message(False, msg)
+                            if random() >= self.drop_prob:
+                                d = self.delay.get(msg)
+                                msg_queues[nextt + d].append(msg)
+                            else:
+                                self.notify_message(True)
                     else:
                         self.notify_message(True)
                 del msg_queues[t]
 
-                if (t+1) % self.delta == 0:
+                if (t + 1) % self.delta == 0:
                     if self.sampling_eval > 0:
                         sample = choice(list(self.nodes.keys()),
                                         max(int(self.n_nodes * self.sampling_eval), 1))
