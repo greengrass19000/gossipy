@@ -305,8 +305,8 @@ class ChordNode(GossipNode):
         self.finger = [1]*m
         pow2 = 1
         cur = idx
-        # print('another')
-        # print(self.idx)
+        # print('Nút :', idx)
+        # print('Bảng Finger: ', end='')
         for i in range(m):
             cur = idx + pow2
             pow2 = pow2 + pow2
@@ -315,6 +315,7 @@ class ChordNode(GossipNode):
             self.finger[i] = cur
         #     print(cur, end=' ')
         # print('')
+        # print('-----------------------------------------')
         self.finger.reverse()
         self.local_cache = {}
     
@@ -322,7 +323,6 @@ class ChordNode(GossipNode):
     def timed_out(self, t: int, weights: Iterable[float]) -> int:
         tout = super().timed_out(t)
         if tout and self.local_cache:
-            #TODO: don't delete the model imediately, remain it log() time steps
             self.model_handler([CACHE.pop(k) for k in self.local_cache.values()], self.data[0], weights)
             self.local_cache = {}
         return tout 
@@ -348,7 +348,7 @@ class ChordNode(GossipNode):
             return ChordMessage(t, sender, peer, limit, MessageType.PUSH, (key,))
         else:
             raise ValueError("ChordNode only supports PUSH protocol.")
-
+        
     # docstr-coverage:inherited
     def receive(self, t: int, msg: ChordMessage) -> Union[ChordMessage, None]:
         msg_type: MessageType
@@ -357,10 +357,7 @@ class ChordNode(GossipNode):
         if msg_type == MessageType.PUSH:
             # this should never happen
             if sender in self.local_cache:
-                # LOG.info("something happened")
-                #TODO: Chờ đến lúc đến thằng limit rồi hẵng xóa
-                if self.idx == msg.limit:        
-                    CACHE.pop(self.local_cache[sender])
+                CACHE.pop(self.local_cache[sender])
             self.local_cache[sender] = recv_model
             # return msg
         return None

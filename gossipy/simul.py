@@ -555,7 +555,6 @@ class ChordSimulator(GossipSimulator):
                         limit = msg.limit
                         sender = msg.sender
                         # Continue to send the message
-                        # if receivernode.timed_out(t, W_matrix[i]):
                         nextt = receivernode.next_timed_out(t)
                         for peer in receivernode.finger:
                             if peer > limit:
