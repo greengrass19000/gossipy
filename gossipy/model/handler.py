@@ -188,7 +188,7 @@ class TorchModelHandler(ModelHandler):
                  optimizer_params: Dict[str, Any],
                  criterion: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
                  local_epochs: int=1,
-                 batch_size: int=32,
+                 batch_size: int=64,
                  create_model_mode: CreateModelMode=CreateModelMode.MERGE_UPDATE,
                  copy_model=True):
         """Handler for torch models.
