@@ -10,7 +10,7 @@ from gossipy.data.handler import ClassificationDataHandler
 from gossipy.simul import ChordSimulator, SimulationReport
 from gossipy.utils import plot_evaluation
 
-seed = 123
+seed = 19000
 set_seed(seed)
 X, y = load_classification_dataset("spambase", as_tensor=True)
 data_handler = ClassificationDataHandler(X, y, test_size=.1)
@@ -26,11 +26,10 @@ nodes = ChordNode.generate(
         optimizer=torch.optim.SGD,
         optimizer_params={
             "lr": .1,
-            "weight_decay": .01,
+            "weight_decay": .01
         },
         criterion=CrossEntropyLoss(),
         create_model_mode=CreateModelMode.MERGE_UPDATE),
-        # create_model_mode=CreateModelMode.UPDATE_MERGE),
     round_len=100,
     sync=False
 )

@@ -175,11 +175,11 @@ def plot_evaluation(evals: List[List[Dict]],
         std: float = np.std(evs, axis=0)
         plt.fill_between(range(1, len(mu)+1), mu-std, mu+std, alpha=0.2)
         plt.title(title)
-        plt.xlabel("cycle")
-        plt.ylabel("metric value")
+        plt.xlabel("each 1000 messages sent")
+        plt.ylabel("0-1 Error")
         plt.plot(range(1, len(mu)+1), mu, label=k)
         LOG.info(f"{k}: {mu[-1]:.2f}")
-    ax.legend(loc="upper right")
+    # ax.legend(loc="upper right")
     plt.show()
 
 

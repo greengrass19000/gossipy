@@ -10,7 +10,7 @@ from gossipy.data.handler import ClassificationDataHandler
 from gossipy.simul import All2AllGossipSimulator, SimulationReport
 from gossipy.utils import plot_evaluation
 
-seed = 123
+seed = 19000
 set_seed(seed)
 X, y = load_classification_dataset("spambase", as_tensor=True)
 data_handler = ClassificationDataHandler(X, y, test_size=.1)
