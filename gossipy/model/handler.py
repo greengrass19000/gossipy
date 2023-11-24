@@ -315,19 +315,19 @@ class TorchModelHandler(ModelHandler):
         y_pred = pred.cpu().numpy().flatten()
         
         res = {
-            "accuracy": accuracy_score(y_true, y_pred),
-            "precision": precision_score(y_true, y_pred, zero_division=0, average="macro"),
-            "recall": recall_score(y_true, y_pred, zero_division=0, average="macro"),
-            "f1_score": f1_score(y_true, y_pred, zero_division=0, average="macro")
+            "Error_rate": 1 - accuracy_score(y_true, y_pred),
+            # "precision": precision_score(y_true, y_pred, zero_division=0, average="macro"),
+            # "recall": recall_score(y_true, y_pred, zero_division=0, average="macro"),
+            # "f1_score": f1_score(y_true, y_pred, zero_division=0, average="macro")
         }
 
-        if scores.shape[1] == 2:
-            auc_scores = scores[:, 1].detach().cpu().numpy().flatten()
-            if len(set(y_true)) == 2:
-                res["auc"] = roc_auc_score(y_true, auc_scores).astype(float)
-            else:
-                res["auc"] = 0.5
-                LOG.warning("# of classes != 2. AUC is set to 0.5.")
+        # if scores.shape[1] == 2:
+        #     auc_scores = scores[:, 1].detach().cpu().numpy().flatten()
+        #     if len(set(y_true)) == 2:
+        #         res["auc"] = roc_auc_score(y_true, auc_scores).astype(float)
+        #     else:
+        #         res["auc"] = 0.5
+        #         LOG.warning("# of classes != 2. AUC is set to 0.5.")
         
         self.model = self.model.to("cpu")
         return res
@@ -642,8 +642,6 @@ class WeightedTMH(TorchModelHandler):
             self.model = copy.deepcopy(recv_model.model)
             self.n_updates = recv_model.n_updates
         elif self.mode == CreateModelMode.MERGE_UPDATE:
-            # print(type(recv_model))
-            # print(recv_model)
             self._merge(recv_model, weights)
             self._update(data)
         elif self.mode == CreateModelMode.UPDATE_MERGE:

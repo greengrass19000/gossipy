@@ -15,12 +15,12 @@ from gossipy.flow_control import RandomizedTokenAccount
 from gossipy.utils import plot_evaluation
 
 
-set_seed(98765)
+set_seed(123)
 X, y = load_classification_dataset("spambase", as_tensor=True)
 data_handler = ClassificationDataHandler(X, y, test_size=.1)
 dispatcher = DataDispatcher(data_handler, n=100, eval_on_user=False, auto_assign=True)
-topology = StaticP2PNetwork(100, to_numpy_array(random_regular_graph(20, 100, seed=42)))
-# topology = StaticP2PNetwork(100, topology=None)
+# topology = StaticP2PNetwork(100, to_numpy_array(random_regular_graph(20, 100, seed=42)))
+topology = StaticP2PNetwork(100, topology=None)
 net = LogisticRegression(data_handler.Xtr.shape[1], 2)
 
 nodes = PartitioningBasedNode.generate(
@@ -55,6 +55,6 @@ simulator = TokenizedGossipSimulator(
 report = SimulationReport()
 simulator.add_receiver(report)
 simulator.init_nodes(seed=42)
-simulator.start(n_rounds=100)
+simulator.start(n_rounds=1000)
 
 plot_evaluation([[ev for _, ev in report.get_evaluation(False)]], "Overall test results")

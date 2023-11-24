@@ -229,7 +229,6 @@ class SimulationReport(SimulationEventReceiver):
         else:
             assert msg is not None, "msg is not set"
             self._sent_messages += 1
-            # LOG.info(type(msg))
             self._total_size += msg.get_size()
     
     # docstr-coverage:inherited
@@ -515,35 +514,39 @@ class ChordSimulator(GossipSimulator):
     def start(self, 
               W_matrix: MixingMatrix,
               n_rounds: int=100) -> None:
+        
 
         assert self.initialized, \
                "The simulator is not inizialized. Please, call the method 'init_nodes'."
         LOG.info("Simulation started.")
         node_ids = np.arange(self.n_nodes)
-        
-        pbar = track(range(n_rounds * self.delta), description="Simulating...")
+
+        total_time_step = n_rounds * self.delta
+        pbar = track(range(total_time_step), description="Simulating...")
         msg_queues = DefaultDict(list)
+        msg_cnt = 0
         try:
             for t in pbar:
                 if t % self.delta == 0: 
                     shuffle(node_ids)
-                
                 for i in node_ids:
                     node = self.nodes[i]
                     if node.timed_out(t, W_matrix[i]):
-                        peers = node.get_peers()
                         limit = node.idx - 1 if node.idx != 0 else self.n_nodes - 1
-                        for peer in peers:
-                            msg = node.send(t, i, peer, self.protocol, limit)
+                        for peer in node.finger:
+                            nextt = t + 1
+                            nextt = self.nodes[peer].next_timed_out(t)
+                            msg = node.send(nextt, i, peer, self.protocol, limit)
                             limit = peer - 1 if peer != 0 else self.n_nodes - 1
                             self.notify_message(False, msg)
+                            msg_cnt += 1
                             if msg:
                                 if random() >= self.drop_prob:
                                     d = self.delay.get(msg)
-                                    msg_queues[t + d].append(msg)
+                                    msg_queues[nextt + d].append(msg)
                                 else:
                                     self.notify_message(True)
-                
+                                    msg_cnt += 1
                 is_online = random(self.n_nodes) <= self.online_prob
                 for msg in msg_queues[t]:
                     receiver = msg.receiver
@@ -553,19 +556,24 @@ class ChordSimulator(GossipSimulator):
                             continue
                         receivernode.receive(t, msg)
                         limit = msg.limit
+                        if receiver == limit:
+                            continue
                         sender = msg.sender
                         # Continue to send the message
-                        nextt = receivernode.next_timed_out(t)
+                        nextt = t + 1
+                        # nextt = receivernode.next_timed_out(t)
                         for peer in receivernode.finger:
-                            if peer > limit:
-                                continue
-                            msgtosend = receivernode.send(nextt, sender, peer, self.protocol, limit)
-                            self.notify_message(False, msgtosend)
-                            if random() >= self.drop_prob:
-                                d = self.delay.get(msgtosend)
-                                msg_queues[nextt + d].append(msgtosend)
-                            else:
-                                self.notify_message(True)
+                            if ((peer > limit) ^ (peer < receiver) ^ (limit > receiver)) or peer == limit:
+                                msgtosend = receivernode.send(nextt, sender, peer, self.protocol, limit)
+                                limit = peer - 1 if peer != 0 else self.n_nodes - 1
+                                self.notify_message(False, msgtosend)
+                                msg_cnt += 1
+                                if random() >= self.drop_prob:
+                                    d = self.delay.get(msgtosend)
+                                    msg_queues[nextt + d].append(msgtosend)
+                                else:
+                                    self.notify_message(True)
+                                    msg_cnt += 1
                     else:
                         self.notify_message(True)
                 del msg_queues[t]
@@ -589,7 +597,12 @@ class ChordSimulator(GossipSimulator):
                                 for _, n in self.nodes.items()]
                         if ev:
                             self.notify_evaluation(t, False, ev)
+                
+                # if (t + 1) % self.delta == 0:
+                #     self.eval(msg_cnt, t)
+                            
                 self.notify_timestep(t)
+                # print('all the message:', msg_cnt, 'in t=', t)
 
         except KeyboardInterrupt:
             LOG.warning("Simulation interrupted by user.")
@@ -598,6 +611,26 @@ class ChordSimulator(GossipSimulator):
         pbar.close()
         self.notify_end()
         return
+    
+    def eval(self, msg_cnt: int, t: int) -> None:
+        if self.sampling_eval > 0:
+            sample = choice(list(self.nodes.keys()),
+                            max(int(self.n_nodes * self.sampling_eval), 1))
+            ev = [self.nodes[i].evaluate() for i in sample if self.nodes[i].has_test()]
+        else:
+            ev = [n.evaluate() for _, n in self.nodes.items() if n.has_test()]
+        if ev:
+            self.notify_evaluation(t, True, ev)
+        
+        if self.data_dispatcher.has_test():
+            if self.sampling_eval > 0:
+                ev = [self.nodes[i].evaluate(self.data_dispatcher.get_eval_set())
+                    for i in sample]
+            else:
+                ev = [n.evaluate(self.data_dispatcher.get_eval_set())
+                    for _, n in self.nodes.items()]
+            if ev:
+                self.notify_evaluation(t, False, ev)
 
 class TokenizedGossipSimulator(GossipSimulator):
     def __init__(self,

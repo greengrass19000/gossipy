@@ -179,7 +179,7 @@ def plot_evaluation(evals: List[List[Dict]],
         plt.ylabel("metric value")
         plt.plot(range(1, len(mu)+1), mu, label=k)
         LOG.info(f"{k}: {mu[-1]:.2f}")
-    ax.legend(loc="lower right")
+    ax.legend(loc="upper right")
     plt.show()
 
 

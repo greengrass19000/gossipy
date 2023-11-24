@@ -10,8 +10,8 @@ from gossipy.data.handler import ClassificationDataHandler
 from gossipy.simul import All2AllGossipSimulator, SimulationReport
 from gossipy.utils import plot_evaluation
 
-
-set_seed(98765)
+seed = 123
+set_seed(seed)
 X, y = load_classification_dataset("spambase", as_tensor=True)
 data_handler = ClassificationDataHandler(X, y, test_size=.1)
 dispatcher = DataDispatcher(data_handler, n=100, eval_on_user=False, auto_assign=True)
@@ -44,7 +44,7 @@ simulator = All2AllGossipSimulator(
 
 report = SimulationReport()
 simulator.add_receiver(report)
-simulator.init_nodes(seed=42)
-simulator.start(UniformMixing(topology), n_rounds=100)
+simulator.init_nodes(seed=seed)
+simulator.start(UniformMixing(topology), n_rounds=20)
 
 plot_evaluation([[ev for _, ev in report.get_evaluation(local=False)]], "Overall test results")

@@ -330,7 +330,7 @@ class ChordNode(GossipNode):
     def next_timed_out(self, t: int) -> int:
         tmp = t % self.delta
         tmp = self.delta - tmp
-        return tmp
+        return tmp + t
     
     def get_peers(self) -> int:
         return self.finger
