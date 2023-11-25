@@ -10,7 +10,7 @@ from gossipy.data.handler import ClassificationDataHandler
 from gossipy.simul import ChordSimulator, SimulationReport
 from gossipy.utils import plot_evaluation
 
-seed = 19000
+seed = 42
 set_seed(seed)
 X, y = load_classification_dataset("spambase", as_tensor=True)
 data_handler = ClassificationDataHandler(X, y, test_size=.1)

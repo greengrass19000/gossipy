@@ -559,7 +559,6 @@ class ChordSimulator(GossipSimulator):
                         if receiver == limit:
                             continue
                         sender = msg.sender
-                        # Continue to send the message
                         for peer in receivernode.finger:
                             if ((peer > limit) ^ (peer < receiver) ^ (limit > receiver)) or peer == limit:
                                 msgtosend = receivernode.send(t + 1, sender, peer, self.protocol, limit)
@@ -567,7 +566,7 @@ class ChordSimulator(GossipSimulator):
                                 self.notify_message(False, msgtosend)
                                 msg_cnt += 1
                                 if msg_cnt % msg_sent_eval == 0:
-                                    self.eval(msg_cnt)
+                                    self.eval_by_msg_sent(msg_cnt)
                                 if random() >= self.drop_prob:
                                     d = self.delay.get(msgtosend)
                                     msg_queues[t + 1 + d].append(msgtosend)
@@ -587,7 +586,7 @@ class ChordSimulator(GossipSimulator):
         self.notify_end()
         return
     
-    def eval(self, msg_cnt: int) -> None:
+    def eval_by_msg_sent(self, msg_cnt: int) -> None:
         if self.sampling_eval > 0:
             sample = choice(list(self.nodes.keys()),
                             max(int(self.n_nodes * self.sampling_eval), 1))
