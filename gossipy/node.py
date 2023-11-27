@@ -79,7 +79,7 @@ class GossipNode():
         self.round_len: int = round_len
         self.model_handler: ModelHandler = model_handler
         self.sync: bool = sync
-        self.delta: int = randint(0, round_len) if sync else int(normal(round_len, round_len/10))
+        self.delta: int = randint(0, round_len) if sync else int(normal(round_len, round_len/20))
         self.p2p_net = p2p_net
 
     def init_model(self, local_train: bool=True, *args, **kwargs) -> None:
@@ -327,14 +327,6 @@ class ChordNode(GossipNode):
             self.local_cache = {}
         return tout 
     
-    def next_timed_out(self, t: int) -> int:
-        tmp = t % self.delta
-        tmp = self.delta - tmp
-        return tmp + t
-    
-    def get_peers(self) -> int:
-        return self.finger
-
     # docstr-coverage:inherited
     def send(self,
              t: int,

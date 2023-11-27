@@ -540,7 +540,7 @@ class ChordSimulator(GossipSimulator):
                             self.notify_message(False, msg)
                             msg_cnt += 1
                             if msg_cnt % msg_sent_eval == 0:
-                                self.eval(msg_cnt)
+                                self.eval_by_msg_sent(msg_cnt)
                             if msg:
                                 if random() >= self.drop_prob:
                                     d = self.delay.get(msg)
